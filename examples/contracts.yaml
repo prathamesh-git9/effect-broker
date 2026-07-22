@@ -1,0 +1,19 @@
+# Demo tool contracts. Each declares exactly what the target can prove, which
+# fixes the broker's honest guarantee for that tool (see the README table).
+tools:
+  charge:                       # a payment API with a stable idempotency key
+    safety: idempotent
+    version: v1
+    retry_limit: 5
+    key_retention_seconds: 86400        # target keeps the key >= our recovery horizon
+
+  create_order:                 # no dedupe, but an authoritative lookup by key
+    safety: reconcilable
+    version: v1
+    retry_limit: 5
+    settlement_bound_seconds: 300       # a probe can prove absence only after this
+
+  send_email:                   # fire-and-forget: no key, no lookup
+    safety: unsafe
+    version: v1
+    retry_limit: 0                      # at most once; a lost result is outcome_unknown
