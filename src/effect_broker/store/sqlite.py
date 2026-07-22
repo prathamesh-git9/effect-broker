@@ -332,6 +332,64 @@ class SqliteStore(EffectStore):
         ).fetchone()
         return None if row is None else _row_to_record(row)
 
+    async def list(
+        self,
+        tenant_id: str,
+        *,
+        status: EffectStatus | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[EffectRecord]:
+        params: list[Any] = [tenant_id]
+        where = "tenant_id = ?"
+        if status is not None:
+            where = f"{where} AND status = ?"
+            params.append(status.value)
+        params.extend([limit, offset])
+        rows = self._conn.execute(
+            f"""
+            SELECT *
+            FROM effects
+            WHERE {where}
+            ORDER BY created_at, effect_id
+            LIMIT ? OFFSET ?
+            """,
+            params,
+        ).fetchall()
+        return [_row_to_record(row) for row in rows]
+
+    async def receipt(
+        self,
+        tenant_id: str,
+        effect_id: str,
+    ) -> JsonObject | None:
+        record = await self.get(tenant_id, effect_id)
+        if record is None:
+            return None
+        row = self._conn.execute(
+            """
+            SELECT *
+            FROM events
+            WHERE effect_id = ? AND event_type = ?
+            ORDER BY sequence DESC
+            """,
+            (effect_id, "transition"),
+        ).fetchall()
+        for event in row:
+            data = json.loads(event["data_json"])
+            if data.get("to") != EffectStatus.SUCCEEDED.value:
+                continue
+            return {
+                "effect_id": effect_id,
+                "status": EffectStatus.SUCCEEDED.value,
+                "contract": record.contract.name,
+                "contract_version": record.contract.version,
+                "downstream_key": record.downstream_key,
+                "metadata": dict(data.get("metadata", {})),
+                "recorded_at": event["at"],
+            }
+        return None
+
     async def events(self, effect_id: str) -> list[SqliteEvent]:
         rows = self._conn.execute(
             """

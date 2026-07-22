@@ -263,6 +263,50 @@ class InMemoryStore(EffectStore):
                 return None
             return record
 
+    async def list(
+        self,
+        tenant_id: str,
+        *,
+        status: EffectStatus | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[EffectRecord]:
+        async with self._lock:
+            records = [
+                record
+                for record in self._records.values()
+                if record.tenant_id == tenant_id
+                and (status is None or record.status is status)
+            ]
+            records.sort(key=lambda record: (record.created_at, record.effect_id))
+            return records[offset : offset + limit]
+
+    async def receipt(
+        self,
+        tenant_id: str,
+        effect_id: str,
+    ) -> JsonObject | None:
+        async with self._lock:
+            record = self._records.get(effect_id)
+            if record is None or record.tenant_id != tenant_id:
+                return None
+            for event in reversed(self._events.get(effect_id, [])):
+                if event.event_type != "transition":
+                    continue
+                if event.data.get("to") != EffectStatus.SUCCEEDED.value:
+                    continue
+                metadata = event.data.get("metadata", {})
+                return {
+                    "effect_id": effect_id,
+                    "status": EffectStatus.SUCCEEDED.value,
+                    "contract": record.contract.name,
+                    "contract_version": record.contract.version,
+                    "downstream_key": record.downstream_key,
+                    "metadata": dict(metadata),
+                    "recorded_at": self._format_time(event.at),
+                }
+            return None
+
     async def events(self, effect_id: str) -> list[MemoryEvent]:
         """Return a copy of an effect's event stream for offline assertions."""
         async with self._lock:

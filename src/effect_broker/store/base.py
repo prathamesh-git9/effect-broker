@@ -81,3 +81,18 @@ class EffectStore(Protocol):
     ) -> EffectRecord: ...
 
     async def get(self, tenant_id: str, effect_id: str) -> EffectRecord | None: ...
+
+    async def list(
+        self,
+        tenant_id: str,
+        *,
+        status: EffectStatus | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[EffectRecord]: ...
+
+    async def receipt(
+        self,
+        tenant_id: str,
+        effect_id: str,
+    ) -> JsonObject | None: ...
