@@ -20,8 +20,7 @@ jobs:
       - name: Ruff
         run: ruff check .
       - name: Tests
-        # The default suite is credential- and infrastructure-free: the four
-        # safety classes are proved against an in-memory store and a simulated
-        # target. Postgres integration and the subprocess crash matrix are
-        # separate, opt-in jobs added with those milestones.
+        # The default suite is credential- and infrastructure-free: it proves
+        # the safety classes in-process and runs the SQLite subprocess crash
+        # matrix without any service container.
         run: pytest -q
