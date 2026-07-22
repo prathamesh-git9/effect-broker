@@ -12,8 +12,15 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from effect_broker.adapters.base import EffectAdapter
-from effect_broker.errors import AdapterError
+from effect_broker.errors import AdapterError, VersionConflictError
 from effect_broker.models import DispatchResult, EffectRecord, EffectStatus, JsonObject
+from effect_broker.observability import (
+    observe_latency,
+    record_dispatch_attempt,
+    record_fenced_stale_write,
+    record_transition,
+    span,
+)
 from effect_broker.store.base import EffectStore
 
 AdapterFor = Callable[[EffectRecord], EffectAdapter]
@@ -38,31 +45,33 @@ async def dispatch_once(
     )
     results: list[EffectRecord] = []
     for effect in claimed:
-        dispatching = await store.transition(
-            effect.effect_id,
-            expected_version=effect.version,
-            target=EffectStatus.DISPATCHING,
-            data={"worker_id": worker_id},
+        dispatching = await _transition_and_record(
+            store,
+            effect,
+            EffectStatus.DISPATCHING,
+            {"worker_id": worker_id},
         )
         attempt_id = await store.start_attempt(
             dispatching.effect_id,
             expected_version=dispatching.version,
             worker_id=worker_id,
         )
+        record_dispatch_attempt(dispatching)
         try:
-            adapter = adapter_for(dispatching)
-            result = await adapter.dispatch(dispatching, attempt_id=attempt_id)
+            with observe_latency("dispatch"), span("dispatch", dispatching):
+                adapter = adapter_for(dispatching)
+                result = await adapter.dispatch(dispatching, attempt_id=attempt_id)
             if result.committed:
                 results.append(
                     await _transition_committed(store, dispatching, attempt_id, result)
                 )
             else:
                 results.append(
-                    await store.transition(
-                        dispatching.effect_id,
-                        expected_version=dispatching.version,
-                        target=EffectStatus.OUTCOME_UNKNOWN,
-                        data={"attempt_id": attempt_id, "reason": "not_confirmed"},
+                    await _transition_and_record(
+                        store,
+                        dispatching,
+                        EffectStatus.OUTCOME_UNKNOWN,
+                        {"attempt_id": attempt_id, "reason": "not_confirmed"},
                     )
                 )
         except AdapterError as exc:
@@ -76,11 +85,11 @@ async def dispatch_once(
             )
         except Exception as exc:  # noqa: BLE001 - ambiguity must be persisted.
             results.append(
-                await store.transition(
-                    dispatching.effect_id,
-                    expected_version=dispatching.version,
-                    target=EffectStatus.OUTCOME_UNKNOWN,
-                    data={
+                await _transition_and_record(
+                    store,
+                    dispatching,
+                    EffectStatus.OUTCOME_UNKNOWN,
+                    {
                         "attempt_id": attempt_id,
                         "error": type(exc).__name__,
                         "reason": "ambiguous_dispatch",
@@ -96,11 +105,11 @@ async def _transition_committed(
     attempt_id: str,
     result: DispatchResult,
 ) -> EffectRecord:
-    return await store.transition(
-        effect.effect_id,
-        expected_version=effect.version,
-        target=EffectStatus.SUCCEEDED,
-        data={
+    return await _transition_and_record(
+        store,
+        effect,
+        EffectStatus.SUCCEEDED,
+        {
             "attempt_id": attempt_id,
             "external_id": result.external_id,
             "output": dict(result.output),
@@ -125,12 +134,7 @@ async def _transition_proven_non_commit(
         "error": type(exc).__name__,
         "reason": "proven_non_commit",
     }
-    return await store.transition(
-        effect.effect_id,
-        expected_version=effect.version,
-        target=target,
-        data=data,
-    )
+    return await _transition_and_record(store, effect, target, data)
 
 
 def _attempt_ordinal(attempt_id: str) -> int:
@@ -138,3 +142,23 @@ def _attempt_ordinal(attempt_id: str) -> int:
         return int(attempt_id.rsplit("-", maxsplit=1)[1])
     except (IndexError, ValueError):
         return 1
+
+
+async def _transition_and_record(
+    store: EffectStore,
+    before: EffectRecord,
+    target: EffectStatus,
+    data: JsonObject,
+) -> EffectRecord:
+    try:
+        after = await store.transition(
+            before.effect_id,
+            expected_version=before.version,
+            target=target,
+            data=data,
+        )
+    except VersionConflictError:
+        record_fenced_stale_write()
+        raise
+    record_transition(before, after)
+    return after

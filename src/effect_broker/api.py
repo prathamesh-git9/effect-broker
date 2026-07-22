@@ -23,6 +23,7 @@ from effect_broker.errors import (
     UnknownEffectError,
 )
 from effect_broker.models import EffectRecord, EffectRequest, EffectStatus
+from effect_broker.observability import PROMETHEUS_CONTENT_TYPE, metrics_text
 
 
 class SubmitEffectBody(BaseModel):
@@ -108,7 +109,7 @@ def create_app(
 ):
     """Create a FastAPI app over an existing broker instance."""
     from fastapi import Depends, FastAPI, Query, status
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import JSONResponse, Response
 
     status_query = Query(default=None, alias="status")
     limit_query = Query(default=50, ge=1, le=500)
@@ -239,6 +240,13 @@ def create_app(
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/metrics")
+    async def metrics() -> Response:
+        return Response(
+            content=metrics_text(),
+            media_type=PROMETHEUS_CONTENT_TYPE,
+        )
 
     return app
 

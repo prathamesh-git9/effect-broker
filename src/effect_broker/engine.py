@@ -6,13 +6,22 @@ from collections.abc import Callable
 
 from effect_broker.adapters.base import EffectAdapter
 from effect_broker.contracts import ContractRegistry
-from effect_broker.errors import InvalidTransitionError, UnknownEffectError
+from effect_broker.errors import (
+    InvalidTransitionError,
+    PayloadConflictError,
+    UnknownEffectError,
+)
 from effect_broker.models import (
     EffectRecord,
     EffectRequest,
     EffectStatus,
     JsonObject,
     Reservation,
+)
+from effect_broker.observability import (
+    observe_latency,
+    record_conflict,
+    record_submit,
 )
 from effect_broker.reconcile import reconcile_once
 from effect_broker.store.base import EffectStore
@@ -44,7 +53,14 @@ class EffectBroker:
         request: EffectRequest,
     ) -> Reservation:
         contract = self._contracts.get(request.tool)
-        return await self._store.reserve(tenant_id, request, contract)
+        with observe_latency("reserve"):
+            try:
+                reservation = await self._store.reserve(tenant_id, request, contract)
+            except PayloadConflictError:
+                record_conflict()
+                raise
+        record_submit(reservation)
+        return reservation
 
     async def get(self, tenant_id: str, effect_id: str) -> EffectRecord:
         effect = await self._store.get(tenant_id, effect_id)
