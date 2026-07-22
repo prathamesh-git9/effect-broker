@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: effect_broker
+      POSTGRES_PASSWORD: effect_broker
+      POSTGRES_DB: effect_broker
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U effect_broker -d effect_broker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment: &broker-env
+      EFFECT_BROKER_STORE: postgres
+      EFFECT_BROKER_POSTGRES_DSN: >-
+        postgresql://effect_broker:effect_broker@postgres:5432/effect_broker
+      EFFECT_BROKER_BROKER_SECRET_HEX: >-
+        0000000000000000000000000000000000000000000000000000000000000000
+      EFFECT_BROKER_CONTRACTS_PATH: /app/contracts.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  broker:
+    build: .
+    environment:
+      <<: *broker-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build: .
+    command:
+      - effect-broker
+      - worker
+      - --adapter-factory
+      - effect_broker.adapters.simulated:default_adapter_for
+    environment:
+      <<: *broker-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  reconciler:
+    build: .
+    command:
+      - effect-broker
+      - reconciler
+      - --adapter-factory
+      - effect_broker.adapters.simulated:default_adapter_for
+    environment:
+      <<: *broker-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:

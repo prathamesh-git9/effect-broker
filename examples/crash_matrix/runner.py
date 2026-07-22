@@ -26,6 +26,8 @@ from effect_broker.models import (
     SafetyClass,
 )
 from effect_broker.reconcile import reconcile_once
+from effect_broker.store.base import tenant_key_provider_from_secret
+from effect_broker.store.postgres import PostgresStore
 from effect_broker.store.sqlite import SqliteStore
 
 TENANT_ID = "tenant-a"
@@ -108,7 +110,7 @@ def _run_scenario(root: Path, safety: SafetyClass) -> ScenarioResult:
         store.close()
 
 
-async def _submit(store: SqliteStore, safety: SafetyClass):
+async def _submit(store, safety: SafetyClass):
     broker = EffectBroker(
         store,
         ContractRegistry({TOOL: _contract(safety)}),
@@ -126,7 +128,7 @@ async def _submit(store: SqliteStore, safety: SafetyClass):
 
 
 async def _mark_unknown(
-    store: SqliteStore,
+    store,
     effect: EffectRecord,
 ) -> EffectRecord:
     current = await store.get(TENANT_ID, effect.effect_id)
@@ -224,7 +226,7 @@ async def recover_one(
     target_path: Path,
     effect_id: str,
 ) -> EffectRecord:
-    store = SqliteStore.open(broker_path, TENANT_SECRET)
+    store = _open_store(broker_path)
     target = DurableTarget.open(target_path)
     try:
         effect = await store.get(TENANT_ID, effect_id)
@@ -237,7 +239,7 @@ async def recover_one(
         )
     finally:
         target.close()
-        store.close()
+        await _close_store(store)
 
 
 async def zombie_transition(
@@ -245,7 +247,7 @@ async def zombie_transition(
     effect_id: str,
     expected_version: int,
 ) -> None:
-    store = SqliteStore.open(broker_path, TENANT_SECRET)
+    store = _open_store(broker_path)
     try:
         await store.transition(
             effect_id,
@@ -254,7 +256,25 @@ async def zombie_transition(
             data={"actor": "zombie-worker"},
         )
     finally:
-        store.close()
+        await _close_store(store)
+
+
+def _open_store(broker_path: Path):
+    dsn = os.environ.get("BROKER_DSN")
+    if dsn:
+        return PostgresStore.connect(
+            dsn,
+            tenant_key_provider_from_secret(TENANT_SECRET),
+        )
+    return SqliteStore.open(broker_path, TENANT_SECRET)
+
+
+async def _close_store(store) -> None:
+    close = getattr(store, "close", None)
+    if close is not None:
+        close()
+        return
+    await store.aclose()
 
 
 def _adapter_for(effect: EffectRecord) -> DurableTargetAdapter:

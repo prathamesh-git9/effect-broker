@@ -13,6 +13,7 @@ WORKDIR /app
 RUN useradd --create-home --shell /usr/sbin/nologin broker
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir /wheels/*.whl && rm -rf /wheels
+COPY alembic.ini ./alembic.ini
 COPY examples/contracts.yaml ./contracts.yaml
 
 USER broker

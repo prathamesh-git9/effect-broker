@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -16,7 +16,9 @@ from effect_broker.models import (
     EffectStatus,
     SafetyClass,
 )
+from effect_broker.store.base import tenant_key_provider_from_secret
 from effect_broker.store.memory import InMemoryStore
+from effect_broker.store.postgres import PostgresStore, create_schema
 from effect_broker.store.sqlite import SqliteStore
 
 
@@ -43,17 +45,32 @@ def _contract() -> EffectContract:
     )
 
 
-@pytest.fixture(params=["memory", "sqlite"])
-def store(request: pytest.FixtureRequest, tmp_path) -> Iterator[object]:
+@pytest.fixture(params=["memory", "sqlite", "postgres"])
+async def store(request: pytest.FixtureRequest, tmp_path):
     if request.param == "memory":
         yield InMemoryStore()
         return
 
-    sqlite = SqliteStore.open(tmp_path / "broker.sqlite3", b"test-secret")
+    if request.param == "sqlite":
+        sqlite = SqliteStore.open(tmp_path / "broker.sqlite3", b"test-secret")
+        try:
+            yield sqlite
+        finally:
+            sqlite.close()
+        return
+
+    dsn = os.environ.get("EFFECT_BROKER_TEST_DSN") or os.environ.get("DATABASE_URL")
+    if not dsn:
+        pytest.skip("EFFECT_BROKER_TEST_DSN or DATABASE_URL is not set")
+    await create_schema(dsn, reset=True)
+    postgres = PostgresStore.connect(
+        dsn,
+        tenant_key_provider_from_secret(b"test-secret"),
+    )
     try:
-        yield sqlite
+        yield postgres
     finally:
-        sqlite.close()
+        await postgres.aclose()
 
 
 async def test_reservation_deduplicates_same_payload(store) -> None:

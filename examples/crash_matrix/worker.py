@@ -15,18 +15,29 @@ from datetime import UTC, datetime, timedelta
 from examples.crash_matrix.target import DurableTarget
 
 from effect_broker.models import EffectStatus
+from effect_broker.store.base import tenant_key_provider_from_secret
+from effect_broker.store.postgres import PostgresStore
 from effect_broker.store.sqlite import SqliteStore
 
 TENANT_SECRET = b"crash-matrix-tenant-secret"
 
 
 async def run_once() -> int:
-    broker_path = _required_env("BROKER_DB")
+    broker_dsn = os.environ.get("BROKER_DSN")
+    broker_path = os.environ.get("BROKER_DB")
     target_path = _required_env("TARGET_DB")
     failpoint = os.environ.get("FAILPOINT", "none")
     worker_id = os.environ.get("WORKER_ID", f"worker-{os.getpid()}")
 
-    store = SqliteStore.open(broker_path, TENANT_SECRET)
+    if broker_dsn:
+        store = PostgresStore.connect(
+            broker_dsn,
+            tenant_key_provider_from_secret(TENANT_SECRET),
+        )
+    elif broker_path:
+        store = SqliteStore.open(broker_path, TENANT_SECRET)
+    else:
+        raise RuntimeError("BROKER_DSN or BROKER_DB is required")
     target = DurableTarget.open(target_path)
     try:
         claimed = await store.claim_due(
@@ -78,7 +89,11 @@ async def run_once() -> int:
         return 0
     finally:
         target.close()
-        store.close()
+        close = getattr(store, "close", None)
+        if close is not None:
+            close()
+        else:
+            await store.aclose()
 
 
 def _required_env(name: str) -> str:
