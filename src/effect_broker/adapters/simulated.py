@@ -159,3 +159,12 @@ class SimulatedAdapter(EffectAdapter):
         if bound is None:
             return False
         return self.target.now >= effect.created_at + bound
+
+
+_DEFAULT_TARGET = SimulatedTarget()
+
+
+def default_adapter_for(effect: EffectRecord) -> SimulatedAdapter:
+    """Return a process-local simulated target adapter for docker-compose demos."""
+
+    return SimulatedAdapter(_DEFAULT_TARGET, effect.contract)

@@ -1,1 +1,1 @@
-"""Persistence: Postgres (production) and an in-memory fake (tests only)."""
+"""Persistence: Postgres (production), SQLite demo, and memory tests."""

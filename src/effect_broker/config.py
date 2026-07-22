@@ -19,6 +19,7 @@ from effect_broker.contracts import ContractRegistry
 from effect_broker.engine import AdapterFor, EffectBroker
 from effect_broker.store.base import tenant_key_provider_from_secret
 from effect_broker.store.memory import InMemoryStore
+from effect_broker.store.postgres import PostgresStore
 from effect_broker.store.sqlite import SqliteStore
 
 _DEV_BROKER_SECRET = b"effect-broker-dev-secret-do-not-use-in-production"
@@ -27,6 +28,7 @@ _DEV_BROKER_SECRET = b"effect-broker-dev-secret-do-not-use-in-production"
 class StoreKind(StrEnum):
     MEMORY = "memory"
     SQLITE = "sqlite"
+    POSTGRES = "postgres"
 
 
 class Settings(BaseSettings):
@@ -42,6 +44,7 @@ class Settings(BaseSettings):
     broker_secret_base64: str | None = None
     store: StoreKind = StoreKind.MEMORY
     sqlite_path: Path = Path("effect-broker.sqlite3")
+    postgres_dsn: str | None = None
     contracts_path: Path = Path("contracts.yaml")
     api_key_hashes: dict[str, str] = Field(default_factory=dict)
     dev_api_key_enabled: bool = True
@@ -84,6 +87,13 @@ def build_broker(
     contracts = load_contracts(settings.contracts_path)
     if settings.store is StoreKind.MEMORY:
         store = InMemoryStore(tenant_keys)
-    else:
+    elif settings.store is StoreKind.SQLITE:
         store = SqliteStore.open(settings.sqlite_path, secret)
+    else:
+        if settings.postgres_dsn is None:
+            raise ValueError(
+                "EFFECT_BROKER_POSTGRES_DSN is required when "
+                "EFFECT_BROKER_STORE=postgres"
+            )
+        store = PostgresStore.connect(settings.postgres_dsn, tenant_keys)
     return EffectBroker(store, contracts, adapter_for)
