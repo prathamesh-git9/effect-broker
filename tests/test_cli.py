@@ -91,6 +91,39 @@ tools:
     assert bad_result.exit_code == 1
 
 
+def test_cancel_command(tmp_path) -> None:
+    _BROKER_CACHE.clear()
+    env = _env(tmp_path)
+    submitted = runner.invoke(
+        app,
+        [
+            "submit",
+            "--operation-key",
+            "order:cancel:charge:v1",
+            "--tool",
+            "charge",
+            "--json",
+        ],
+        env=env,
+    )
+    effect_id = json.loads(submitted.output)["effect_id"]
+    result = runner.invoke(
+        app,
+        [
+            "cancel",
+            effect_id,
+            "--expected-version",
+            "0",
+            "--reason",
+            "customer withdrew",
+            "--json",
+        ],
+        env=env,
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["status"] == "cancelled"
+
+
 def test_doctor(tmp_path) -> None:
     _BROKER_CACHE.clear()
     result = runner.invoke(app, ["doctor", "--json"], env=_env(tmp_path))

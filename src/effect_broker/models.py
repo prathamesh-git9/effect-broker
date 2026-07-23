@@ -34,13 +34,14 @@ class SafetyClass(StrEnum):
     """
 
     TRANSACTIONAL = "transactional"  # shares one DB transaction with the broker
-    IDEMPOTENT = "idempotent"        # honours a stable key for a retention horizon
-    RECONCILABLE = "reconcilable"    # authoritative lookup, bounded settlement
-    UNSAFE = "unsafe"                # no key, no lookup -> at most once, else unknown
+    IDEMPOTENT = "idempotent"  # honours a stable key for a retention horizon
+    RECONCILABLE = "reconcilable"  # authoritative lookup, bounded settlement
+    UNSAFE = "unsafe"  # no key, no lookup -> at most once, else unknown
 
 
 class EffectStatus(StrEnum):
     PREPARED = "prepared"
+    CANCELLED = "cancelled"
     DISPATCHING = "dispatching"
     RETRYABLE = "retryable"
     OUTCOME_UNKNOWN = "outcome_unknown"
@@ -53,7 +54,12 @@ class EffectStatus(StrEnum):
 
 #: Statuses from which no automatic transition is allowed.
 TERMINAL_STATUSES = frozenset(
-    {EffectStatus.SUCCEEDED, EffectStatus.FAILED_FINAL, EffectStatus.COMPENSATED}
+    {
+        EffectStatus.CANCELLED,
+        EffectStatus.SUCCEEDED,
+        EffectStatus.FAILED_FINAL,
+        EffectStatus.COMPENSATED,
+    }
 )
 
 

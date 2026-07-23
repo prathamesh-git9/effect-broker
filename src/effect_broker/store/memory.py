@@ -333,8 +333,7 @@ class InMemoryStore(EffectStore):
             raise UnknownEffectError(effect_id) from exc
         if record.version != expected_version:
             raise VersionConflictError(
-                f"{effect_id} expected version {expected_version}, "
-                f"found {record.version}"
+                f"{effect_id} expected version {expected_version}, found {record.version}"
             )
         return record
 

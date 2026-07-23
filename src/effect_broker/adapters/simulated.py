@@ -133,9 +133,7 @@ class SimulatedAdapter(EffectAdapter):
 
         charge = self.target.first_by_downstream_key(effect.downstream_key)
         settled = self._settlement_elapsed(effect)
-        if charge is not None and (
-            not self.target.hide_commits_until_settled or settled
-        ):
+        if charge is not None and (not self.target.hide_commits_until_settled or settled):
             return ProbeResult(
                 status=ProbeStatus.COMMITTED,
                 external_id=charge.external_id,

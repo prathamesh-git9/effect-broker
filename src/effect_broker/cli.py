@@ -201,6 +201,30 @@ def reconcile(
     _emit(_effect_dict(effect), json_output=json_output, table_factory=_effect_table)
 
 
+@app.command("cancel")
+def cancel_effect(
+    effect_id: str,
+    expected_version: int = typer.Option(..., min=0),
+    actor: str = typer.Option("operator"),
+    reason: str = typer.Option(...),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Cancel work that has not entered dispatch; races fail closed."""
+    try:
+        effect = _run(
+            _broker().cancel(
+                _settings().dev_tenant_id,
+                effect_id,
+                expected_version=expected_version,
+                actor=actor,
+                reason=reason,
+            )
+        )
+    except EffectBrokerError as exc:
+        _fail(exc)
+    _emit(_effect_dict(effect), json_output=json_output, table_factory=_effect_table)
+
+
 @contracts_app.command("validate")
 def validate_contracts(path: Path) -> None:
     """Validate a contracts YAML file."""
@@ -230,17 +254,13 @@ def doctor(json_output: bool = typer.Option(False, "--json")) -> None:
             _fail(exc)
     try:
         broker = _broker(settings)
-        effects = _run(
-            broker.list(settings.dev_tenant_id, limit=500, offset=0)
-        )
+        effects = _run(broker.list(settings.dev_tenant_id, limit=500, offset=0))
     except EffectBrokerError as exc:
         _fail(exc)
     for effect in effects:
         operation_key = effect.request.operation_key
         if _risky_operation_key(operation_key):
-            warnings.append(
-                f"risky operation_key pattern: {operation_key}"
-            )
+            warnings.append(f"risky operation_key pattern: {operation_key}")
     payload = {
         "status": "ok" if not warnings else "warning",
         "store": settings.store.value,
@@ -325,9 +345,7 @@ def _adapter_factory(path: str | None) -> AdapterFor:
         module_name, function_name = path.split(":", maxsplit=1)
         factory = getattr(importlib.import_module(module_name), function_name)
     except (ImportError, AttributeError, ValueError) as exc:
-        raise typer.BadParameter(
-            f"invalid adapter factory import path: {path}"
-        ) from exc
+        raise typer.BadParameter(f"invalid adapter factory import path: {path}") from exc
     return factory
 
 

@@ -37,9 +37,7 @@ def _contract(safety: SafetyClass) -> EffectContract:
         version="v1",
         safety=safety,
         retry_limit=3 if safety is not SafetyClass.UNSAFE else 0,
-        key_retention=timedelta(hours=1)
-        if safety is SafetyClass.IDEMPOTENT
-        else None,
+        key_retention=timedelta(hours=1) if safety is SafetyClass.IDEMPOTENT else None,
         settlement_bound=timedelta(seconds=5)
         if safety is SafetyClass.RECONCILABLE
         else None,

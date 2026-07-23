@@ -236,12 +236,15 @@ class SqliteStore(EffectStore):
     ) -> str:
         with self._transaction():
             record = self._record_for_expected_version(effect_id, expected_version)
-            ordinal = int(
-                self._conn.execute(
-                    "SELECT COUNT(*) FROM attempts WHERE effect_id = ?",
-                    (effect_id,),
-                ).fetchone()[0]
-            ) + 1
+            ordinal = (
+                int(
+                    self._conn.execute(
+                        "SELECT COUNT(*) FROM attempts WHERE effect_id = ?",
+                        (effect_id,),
+                    ).fetchone()[0]
+                )
+                + 1
+            )
             attempt_id = f"{effect_id}-attempt-{ordinal}"
             now = datetime.now(UTC)
             self._conn.execute(
@@ -535,8 +538,7 @@ class SqliteStore(EffectStore):
             raise UnknownEffectError(effect_id)
         if record.version != expected_version:
             raise VersionConflictError(
-                f"{effect_id} expected version {expected_version}, "
-                f"found {record.version}"
+                f"{effect_id} expected version {expected_version}, found {record.version}"
             )
         return record
 
@@ -549,12 +551,15 @@ class SqliteStore(EffectStore):
         *,
         at: datetime,
     ) -> None:
-        sequence = int(
-            self._conn.execute(
-                "SELECT COUNT(*) FROM events WHERE effect_id = ?",
-                (effect_id,),
-            ).fetchone()[0]
-        ) + 1
+        sequence = (
+            int(
+                self._conn.execute(
+                    "SELECT COUNT(*) FROM events WHERE effect_id = ?",
+                    (effect_id,),
+                ).fetchone()[0]
+            )
+            + 1
+        )
         self._conn.execute(
             """
             INSERT INTO events (

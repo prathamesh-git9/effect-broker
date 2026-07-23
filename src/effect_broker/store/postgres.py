@@ -294,18 +294,22 @@ class PostgresStore(EffectStore):
                 .on_conflict_do_nothing(index_elements=[tenants.c.tenant_id])
             )
             inserted = (
-                await conn.execute(
-                    pg_insert(effect_intents)
-                    .values(_record_values(record))
-                    .on_conflict_do_nothing(
-                        index_elements=[
-                            effect_intents.c.tenant_id,
-                            effect_intents.c.operation_key,
-                        ]
+                (
+                    await conn.execute(
+                        pg_insert(effect_intents)
+                        .values(_record_values(record))
+                        .on_conflict_do_nothing(
+                            index_elements=[
+                                effect_intents.c.tenant_id,
+                                effect_intents.c.operation_key,
+                            ]
+                        )
+                        .returning(*effect_intents.c)
                     )
-                    .returning(*effect_intents.c)
                 )
-            ).mappings().one_or_none()
+                .mappings()
+                .one_or_none()
+            )
             if inserted is None:
                 existing = await self._select_by_identity(
                     conn,
@@ -348,39 +352,47 @@ class PostgresStore(EffectStore):
         claimed: list[EffectRecord] = []
         async with self._engine.begin() as conn:
             rows = (
-                await conn.execute(
-                    select(effect_intents)
-                    .where(
-                        and_(
-                            effect_intents.c.status.in_(
-                                [
-                                    EffectStatus.PREPARED.value,
-                                    EffectStatus.RETRYABLE.value,
-                                ]
-                            ),
-                            (effect_intents.c.lease_until.is_(None))
-                            | (effect_intents.c.lease_until < now),
+                (
+                    await conn.execute(
+                        select(effect_intents)
+                        .where(
+                            and_(
+                                effect_intents.c.status.in_(
+                                    [
+                                        EffectStatus.PREPARED.value,
+                                        EffectStatus.RETRYABLE.value,
+                                    ]
+                                ),
+                                (effect_intents.c.lease_until.is_(None))
+                                | (effect_intents.c.lease_until < now),
+                            )
                         )
+                        .order_by(effect_intents.c.created_at, effect_intents.c.effect_id)
+                        .with_for_update(skip_locked=True)
+                        .limit(limit)
                     )
-                    .order_by(effect_intents.c.created_at, effect_intents.c.effect_id)
-                    .with_for_update(skip_locked=True)
-                    .limit(limit)
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             for row in rows:
                 updated = (
-                    await conn.execute(
-                        update(effect_intents)
-                        .where(effect_intents.c.effect_id == row["effect_id"])
-                        .values(
-                            worker_id=worker_id,
-                            lease_until=lease_until,
-                            version=effect_intents.c.version + 1,
-                            updated_at=now,
+                    (
+                        await conn.execute(
+                            update(effect_intents)
+                            .where(effect_intents.c.effect_id == row["effect_id"])
+                            .values(
+                                worker_id=worker_id,
+                                lease_until=lease_until,
+                                version=effect_intents.c.version + 1,
+                                updated_at=now,
+                            )
+                            .returning(*effect_intents.c)
                         )
-                        .returning(*effect_intents.c)
                     )
-                ).mappings().one()
+                    .mappings()
+                    .one()
+                )
                 await self._append_event(
                     conn,
                     updated["effect_id"],
@@ -409,15 +421,18 @@ class PostgresStore(EffectStore):
                 expected_version,
                 lock=True,
             )
-            ordinal = int(
-                (
-                    await conn.execute(
-                        select(func.count())
-                        .select_from(effect_attempts)
-                        .where(effect_attempts.c.effect_id == effect_id)
-                    )
-                ).scalar_one()
-            ) + 1
+            ordinal = (
+                int(
+                    (
+                        await conn.execute(
+                            select(func.count())
+                            .select_from(effect_attempts)
+                            .where(effect_attempts.c.effect_id == effect_id)
+                        )
+                    ).scalar_one()
+                )
+                + 1
+            )
             attempt_id = f"{effect_id}-attempt-{ordinal}"
             now = datetime.now(UTC)
             await conn.execute(
@@ -461,24 +476,28 @@ class PostgresStore(EffectStore):
             assert_transition(record.status, target)
             now = datetime.now(UTC)
             updated = (
-                await conn.execute(
-                    update(effect_intents)
-                    .where(
-                        and_(
-                            effect_intents.c.effect_id == effect_id,
-                            effect_intents.c.version == expected_version,
+                (
+                    await conn.execute(
+                        update(effect_intents)
+                        .where(
+                            and_(
+                                effect_intents.c.effect_id == effect_id,
+                                effect_intents.c.version == expected_version,
+                            )
                         )
+                        .values(
+                            status=target.value,
+                            version=effect_intents.c.version + 1,
+                            updated_at=now,
+                            worker_id=None,
+                            lease_until=None,
+                        )
+                        .returning(*effect_intents.c)
                     )
-                    .values(
-                        status=target.value,
-                        version=effect_intents.c.version + 1,
-                        updated_at=now,
-                        worker_id=None,
-                        lease_until=None,
-                    )
-                    .returning(*effect_intents.c)
                 )
-            ).mappings().one_or_none()
+                .mappings()
+                .one_or_none()
+            )
             if updated is None:
                 raise VersionConflictError(
                     f"{effect_id} expected version {expected_version}"
@@ -502,15 +521,19 @@ class PostgresStore(EffectStore):
     async def get(self, tenant_id: str, effect_id: str) -> EffectRecord | None:
         async with self._engine.connect() as conn:
             row = (
-                await conn.execute(
-                    select(effect_intents).where(
-                        and_(
-                            effect_intents.c.tenant_id == tenant_id,
-                            effect_intents.c.effect_id == effect_id,
+                (
+                    await conn.execute(
+                        select(effect_intents).where(
+                            and_(
+                                effect_intents.c.tenant_id == tenant_id,
+                                effect_intents.c.effect_id == effect_id,
+                            )
                         )
                     )
                 )
-            ).mappings().one_or_none()
+                .mappings()
+                .one_or_none()
+            )
         return None if row is None else _row_to_record(row)
 
     async def list(
@@ -540,20 +563,24 @@ class PostgresStore(EffectStore):
     ) -> JsonObject | None:
         async with self._engine.connect() as conn:
             row = (
-                await conn.execute(
-                    select(effect_receipts, effect_intents.c.tenant_id)
-                    .join(
-                        effect_intents,
-                        effect_receipts.c.effect_id == effect_intents.c.effect_id,
-                    )
-                    .where(
-                        and_(
-                            effect_intents.c.tenant_id == tenant_id,
-                            effect_receipts.c.effect_id == effect_id,
+                (
+                    await conn.execute(
+                        select(effect_receipts, effect_intents.c.tenant_id)
+                        .join(
+                            effect_intents,
+                            effect_receipts.c.effect_id == effect_intents.c.effect_id,
+                        )
+                        .where(
+                            and_(
+                                effect_intents.c.tenant_id == tenant_id,
+                                effect_receipts.c.effect_id == effect_id,
+                            )
                         )
                     )
                 )
-            ).mappings().one_or_none()
+                .mappings()
+                .one_or_none()
+            )
         if row is None:
             return None
         return {
@@ -569,12 +596,16 @@ class PostgresStore(EffectStore):
     async def events(self, effect_id: str) -> list[PostgresEvent]:
         async with self._engine.connect() as conn:
             rows = (
-                await conn.execute(
-                    select(effect_events)
-                    .where(effect_events.c.effect_id == effect_id)
-                    .order_by(effect_events.c.sequence)
+                (
+                    await conn.execute(
+                        select(effect_events)
+                        .where(effect_events.c.effect_id == effect_id)
+                        .order_by(effect_events.c.sequence)
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
         return [
             PostgresEvent(
                 effect_id=row["effect_id"],
@@ -603,9 +634,7 @@ class PostgresStore(EffectStore):
         async with self._engine.connect() as conn:
             return int(
                 (
-                    await conn.execute(
-                        select(func.count()).select_from(effect_intents)
-                    )
+                    await conn.execute(select(func.count()).select_from(effect_intents))
                 ).scalar_one()
             )
 
@@ -626,8 +655,7 @@ class PostgresStore(EffectStore):
         record = _row_to_record(row)
         if record.version != expected_version:
             raise VersionConflictError(
-                f"{effect_id} expected version {expected_version}, "
-                f"found {record.version}"
+                f"{effect_id} expected version {expected_version}, found {record.version}"
             )
         return record
 
@@ -638,15 +666,19 @@ class PostgresStore(EffectStore):
         operation_key: str,
     ) -> EffectRecord | None:
         row = (
-            await conn.execute(
-                select(effect_intents).where(
-                    and_(
-                        effect_intents.c.tenant_id == tenant_id,
-                        effect_intents.c.operation_key == operation_key,
+            (
+                await conn.execute(
+                    select(effect_intents).where(
+                        and_(
+                            effect_intents.c.tenant_id == tenant_id,
+                            effect_intents.c.operation_key == operation_key,
+                        )
                     )
                 )
             )
-        ).mappings().one_or_none()
+            .mappings()
+            .one_or_none()
+        )
         return None if row is None else _row_to_record(row)
 
     async def _append_event(

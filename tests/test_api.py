@@ -134,6 +134,48 @@ def test_list_by_status(client: TestClient) -> None:
     assert len(response.json()["items"]) == 2
 
 
+def test_cancel_prepared_effect_and_reject_stale_or_post_dispatch_cancel(
+    client: TestClient,
+    store: InMemoryStore,
+) -> None:
+    created = client.post("/effects", json=_body(), headers=_headers()).json()
+    cancelled = client.post(
+        f"/effects/{created['effect_id']}/cancel",
+        json={"expected_version": 0, "actor": "ops", "reason": "customer withdrew"},
+        headers=_headers(),
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == EffectStatus.CANCELLED.value
+
+    stale = client.post(
+        f"/effects/{created['effect_id']}/cancel",
+        json={"expected_version": 0, "actor": "ops", "reason": "again"},
+        headers=_headers(),
+    )
+    assert stale.status_code == 409
+
+    other = client.post(
+        "/effects",
+        json=_body("order:43:charge:v1"),
+        headers=_headers(),
+    ).json()
+    effect = asyncio.run(async_get(store, other["effect_id"]))
+    asyncio.run(
+        store.transition(
+            effect.effect_id,
+            expected_version=effect.version,
+            target=EffectStatus.DISPATCHING,
+            data={},
+        )
+    )
+    too_late = client.post(
+        f"/effects/{other['effect_id']}/cancel",
+        json={"expected_version": 1, "actor": "ops", "reason": "too late"},
+        headers=_headers(),
+    )
+    assert too_late.status_code == 409
+
+
 def test_reconcile_and_resolve_manual_review(
     client: TestClient,
     store: InMemoryStore,

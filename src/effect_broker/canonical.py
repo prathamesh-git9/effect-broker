@@ -40,9 +40,7 @@ def _validate(value: Any, path: str) -> None:
     if isinstance(value, Mapping):
         for key, item in value.items():
             if not isinstance(key, str):
-                raise CanonicalizationError(
-                    f"non-string object key at {path}: {key!r}"
-                )
+                raise CanonicalizationError(f"non-string object key at {path}: {key!r}")
             _validate(item, f"{path}.{key}")
         return
     # A str is a Sequence, but it is handled above; guard against bytes too.
@@ -52,9 +50,7 @@ def _validate(value: Any, path: str) -> None:
         for index, item in enumerate(value):
             _validate(item, f"{path}[{index}]")
         return
-    raise CanonicalizationError(
-        f"unsupported type at {path}: {type(value).__name__}"
-    )
+    raise CanonicalizationError(f"unsupported type at {path}: {type(value).__name__}")
 
 
 def canonical_json(value: Any) -> str:

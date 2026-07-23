@@ -87,7 +87,7 @@ def test_ambiguity_never_becomes_a_plain_retry():
 
 
 def test_terminal_statuses_have_no_exits():
-    for terminal in (S.SUCCEEDED, S.FAILED_FINAL, S.COMPENSATED):
+    for terminal in (S.CANCELLED, S.SUCCEEDED, S.FAILED_FINAL, S.COMPENSATED):
         assert is_terminal(terminal)
         for target in S:
             assert not is_allowed(terminal, target)
@@ -97,6 +97,13 @@ def test_assert_transition_raises_on_forbidden():
     assert_transition(S.PREPARED, S.DISPATCHING)  # no raise
     with pytest.raises(InvalidTransitionError):
         assert_transition(S.PREPARED, S.SUCCEEDED)
+
+
+def test_cancellation_is_only_allowed_before_dispatch_or_from_proven_retryable():
+    assert is_allowed(S.PREPARED, S.CANCELLED)
+    assert is_allowed(S.RETRYABLE, S.CANCELLED)
+    assert not is_allowed(S.DISPATCHING, S.CANCELLED)
+    assert not is_allowed(S.OUTCOME_UNKNOWN, S.CANCELLED)
 
 
 def test_route_unknown_by_safety_class():

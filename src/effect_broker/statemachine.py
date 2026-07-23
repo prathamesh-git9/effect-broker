@@ -21,7 +21,10 @@ S = EffectStatus
 
 # The transition graph. Each key maps to the statuses reachable from it.
 _ALLOWED: dict[EffectStatus, frozenset[EffectStatus]] = {
-    S.PREPARED: frozenset({S.DISPATCHING}),
+    # Cancellation competes with a worker claim through the store's CAS version.
+    # If dispatch already won, cancellation loses instead of pretending an
+    # in-flight external mutation was stopped.
+    S.PREPARED: frozenset({S.DISPATCHING, S.CANCELLED}),
     # A dispatch ends in exactly one of: proven success, proven non-commit
     # (final or retryable), or ambiguity.
     S.DISPATCHING: frozenset(
@@ -29,23 +32,20 @@ _ALLOWED: dict[EffectStatus, frozenset[EffectStatus]] = {
     ),
     # A retryable (proven-not-committed) effect may be re-dispatched after
     # backoff, or given up on.
-    S.RETRYABLE: frozenset({S.DISPATCHING, S.FAILED_FINAL}),
+    S.RETRYABLE: frozenset({S.DISPATCHING, S.FAILED_FINAL, S.CANCELLED}),
     # Ambiguity is resolved per safety class (see route_unknown): idempotent
     # re-dispatches with the same key, reconcilable probes, unsafe waits for an
     # operator.
-    S.OUTCOME_UNKNOWN: frozenset(
-        {S.DISPATCHING, S.RECONCILING, S.MANUAL_REVIEW}
-    ),
+    S.OUTCOME_UNKNOWN: frozenset({S.DISPATCHING, S.RECONCILING, S.MANUAL_REVIEW}),
     # A probe yields: committed (success), a conclusive not-committed (safe to
     # requeue), or no proof (operator review).
-    S.RECONCILING: frozenset(
-        {S.SUCCEEDED, S.PREPARED, S.MANUAL_REVIEW, S.FAILED_FINAL}
-    ),
+    S.RECONCILING: frozenset({S.SUCCEEDED, S.PREPARED, S.MANUAL_REVIEW, S.FAILED_FINAL}),
     # An operator resolves an unknown/review with evidence.
     S.MANUAL_REVIEW: frozenset({S.SUCCEEDED, S.FAILED_FINAL, S.COMPENSATED}),
     S.SUCCEEDED: frozenset(),
     S.FAILED_FINAL: frozenset(),
     S.COMPENSATED: frozenset(),
+    S.CANCELLED: frozenset(),
 }
 
 

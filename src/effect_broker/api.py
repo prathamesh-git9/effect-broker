@@ -21,6 +21,7 @@ from effect_broker.errors import (
     InvalidTransitionError,
     PayloadConflictError,
     UnknownEffectError,
+    VersionConflictError,
 )
 from effect_broker.models import EffectRecord, EffectRequest, EffectStatus
 from effect_broker.observability import PROMETHEUS_CONTENT_TYPE, metrics_text
@@ -98,6 +99,12 @@ class ResolveEffectBody(BaseModel):
     evidence: dict[str, Any] = Field(default_factory=dict)
 
 
+class CancelEffectBody(BaseModel):
+    expected_version: int = Field(ge=0)
+    actor: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+
+
 class ReconcileBody(BaseModel):
     effect_id: str
     status: EffectStatus
@@ -117,8 +124,8 @@ def create_app(
 
     app = FastAPI(title="effect-broker")
     app.state.broker = broker
-    app.state.authenticator = (
-        authenticator or APIKeyAuthenticator.from_settings(Settings())
+    app.state.authenticator = authenticator or APIKeyAuthenticator.from_settings(
+        Settings()
     )
 
     @app.exception_handler(EffectBrokerError)
@@ -237,6 +244,21 @@ def create_app(
         )
         return _effect_body(effect)
 
+    @app.post("/effects/{effect_id}/cancel", response_model=EffectBody)
+    async def cancel_effect(
+        effect_id: str,
+        body: CancelEffectBody,
+        tenant_id: str = Depends(require_tenant),
+    ) -> EffectBody:
+        effect = await app.state.broker.cancel(
+            tenant_id,
+            effect_id,
+            expected_version=body.expected_version,
+            actor=body.actor,
+            reason=body.reason,
+        )
+        return _effect_body(effect)
+
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
@@ -283,7 +305,7 @@ def _status_for_error(exc: EffectBrokerError) -> int:
         return 404
     if isinstance(exc, PayloadConflictError):
         return 409
-    if isinstance(exc, InvalidTransitionError):
+    if isinstance(exc, (InvalidTransitionError, VersionConflictError)):
         return 409
     if isinstance(exc, (ContractError, CanonicalizationError)):
         return 422
@@ -295,7 +317,7 @@ def _title_for_error(exc: EffectBrokerError) -> str:
         return "Effect not found"
     if isinstance(exc, PayloadConflictError):
         return "Payload conflict"
-    if isinstance(exc, InvalidTransitionError):
+    if isinstance(exc, (InvalidTransitionError, VersionConflictError)):
         return "Invalid transition"
     if isinstance(exc, ContractError):
         return "Contract error"

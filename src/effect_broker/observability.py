@@ -110,8 +110,7 @@ def record_transition(before: EffectRecord, after: EffectRecord) -> None:
     elif after.status is EffectStatus.FAILED_FINAL and before.status is not after.status:
         _effects_total.labels(result="failed").inc()
     elif (
-        after.status is EffectStatus.OUTCOME_UNKNOWN
-        and before.status is not after.status
+        after.status is EffectStatus.OUTCOME_UNKNOWN and before.status is not after.status
     ):
         _effects_total.labels(result="unknown").inc()
 
@@ -173,11 +172,7 @@ def span(
 ) -> Iterator[Any | None]:
     """Start an optional OpenTelemetry span with mandatory redaction."""
     tracer = _get_tracer()
-    context = (
-        nullcontext(None)
-        if tracer is None
-        else tracer.start_as_current_span(name)
-    )
+    context = nullcontext(None) if tracer is None else tracer.start_as_current_span(name)
     with context as active:
         if active is not None:
             active.set_attribute(

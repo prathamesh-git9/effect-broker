@@ -92,8 +92,7 @@ def build_broker(
     else:
         if settings.postgres_dsn is None:
             raise ValueError(
-                "EFFECT_BROKER_POSTGRES_DSN is required when "
-                "EFFECT_BROKER_STORE=postgres"
+                "EFFECT_BROKER_POSTGRES_DSN is required when EFFECT_BROKER_STORE=postgres"
             )
         store = PostgresStore.connect(settings.postgres_dsn, tenant_keys)
     return EffectBroker(store, contracts, adapter_for)

@@ -65,6 +65,23 @@ def create_mcp_server(
         return _effect_dict(effect)
 
     @mcp.tool()
+    async def cancel_effect(
+        effect_id: str,
+        expected_version: int,
+        actor: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Cancel prepared/retryable work; fails if dispatch won the CAS race."""
+        effect = await broker.cancel(
+            tenant_id,
+            effect_id,
+            expected_version=expected_version,
+            actor=actor,
+            reason=reason,
+        )
+        return _effect_dict(effect)
+
+    @mcp.tool()
     async def list_effects(
         status: str | None = None,
         limit: int = 50,

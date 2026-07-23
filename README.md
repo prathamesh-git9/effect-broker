@@ -102,10 +102,11 @@ effect-broker doctor                         # config, contracts, store, key-sco
 
 - **HTTP** — `POST /effects` (submit; 201 + dedup replay, **409** on payload
   conflict), `GET /effects/{id}`, `GET /effects/{id}/receipt` (read-only replay,
-  never dispatches), `POST /effects/{id}/reconcile`, `GET /effects?status=`,
+  never dispatches), `POST /effects/{id}/cancel` (CAS-fenced; only before
+  dispatch), `POST /effects/{id}/reconcile`, `GET /effects?status=`,
   `POST /effects/{id}/resolve` (operator resolution of `manual_review`).
 - **CLI** — `serve`, `worker`, `reconciler`, `submit`, `inspect`, `list`,
-  `contracts validate`, `doctor`, `crash-demo`. Unsafe redispatch is impossible
+  `cancel`, `contracts validate`, `doctor`, `crash-demo`. Unsafe redispatch is impossible
   from the CLI.
 - **MCP** — broker management tools plus a mutating-tool proxy that requires an
   `operation_key`, so an agent routes side-effecting calls through the broker. A
@@ -124,10 +125,10 @@ of unconditional exactly-once execution.
 
 ## Status
 
-The correctness core, the four-safety-class engine, the durable store, and the
-crash-matrix proof are done and green in CI. The production **Postgres** store
-(`FOR UPDATE SKIP LOCKED`), provider demo, observability, and Docker Compose are
-the next milestones. See [docs/NEXT_PROJECT_SPEC.md](docs/NEXT_PROJECT_SPEC.md).
+The correctness core, four-safety-class engine, SQLite and Postgres stores
+(`FOR UPDATE SKIP LOCKED`), correctness-focused observability, Docker Compose,
+CAS-fenced cancellation, and crash-matrix proof are implemented and exercised in CI.
+See [docs/NEXT_PROJECT_SPEC.md](docs/NEXT_PROJECT_SPEC.md) for the design boundary.
 
 ## License
 

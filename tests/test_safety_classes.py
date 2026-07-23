@@ -40,9 +40,7 @@ def _contract(safety: SafetyClass) -> EffectContract:
         version="v1",
         safety=safety,
         retry_limit=3 if safety is not SafetyClass.UNSAFE else 0,
-        key_retention=timedelta(hours=1)
-        if safety is SafetyClass.IDEMPOTENT
-        else None,
+        key_retention=timedelta(hours=1) if safety is SafetyClass.IDEMPOTENT else None,
         settlement_bound=timedelta(seconds=5)
         if safety is SafetyClass.RECONCILABLE
         else None,
@@ -128,18 +126,14 @@ async def test_idempotent_concurrent_redispatches_and_zombie_are_fenced():
     )
 
     outcomes = await asyncio.gather(
-        *[
-            reconcile_once(store, _adapter_for(target), effect=unknown)
-            for _ in range(5)
-        ],
+        *[reconcile_once(store, _adapter_for(target), effect=unknown) for _ in range(5)],
         return_exceptions=True,
     )
 
     successes = [
         outcome
         for outcome in outcomes
-        if isinstance(outcome, EffectRecord)
-        and outcome.status is EffectStatus.SUCCEEDED
+        if isinstance(outcome, EffectRecord) and outcome.status is EffectStatus.SUCCEEDED
     ]
     conflicts = [
         outcome for outcome in outcomes if isinstance(outcome, VersionConflictError)
